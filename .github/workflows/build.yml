@@ -1,0 +1,55 @@
+name: build rtdumper.apk
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: unzip source (if the repo holds a zip instead of the extracted tree)
+        run: |
+          Z=$(ls dumper*.zip 2>/dev/null | head -1)
+          if [ ! -f src/dump_core.cpp ] && [ -n "$Z" ]; then unzip -o "$Z"; fi
+          test -f src/dump_core.cpp
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: install android sdk cmdline-tools
+        run: |
+          SDK=$HOME/android-sdk
+          mkdir -p "$SDK/cmdline-tools"
+          curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdtools.zip
+          unzip -q cmdtools.zip -d "$SDK/cmdline-tools"
+          mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+          echo "ANDROID_HOME=$SDK" >> $GITHUB_ENV
+          echo "$SDK/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$SDK/platform-tools" >> $GITHUB_PATH
+
+      - name: install platform + build-tools + ndk
+        run: |
+          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses > /dev/null
+          sdkmanager --sdk_root="$ANDROID_HOME" "platforms;android-33" "build-tools;34.0.0" "ndk;26.1.10909125"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
+
+      - name: build native core (dump_core)
+        run: |
+          chmod +x build_core.sh
+          ./build_core.sh
+
+      - name: build apk
+        run: |
+          chmod +x build_apk.sh
+          ./build_apk.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rtdumper-apk
+          path: rtdumper.apk
